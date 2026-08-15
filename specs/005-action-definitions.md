@@ -1,6 +1,6 @@
 # Spec 005 — Action definitions, validation, and registration
 
-**Status:** planned
+**Status:** implemented
 **Scope:** authoring and registering actions — parsing (YAML + JSON into
 one struct), CEL compilation, validation, the versioned `actions` table,
 and the `action.*` endpoints/CLI. Registered actions are inert: nothing
@@ -157,8 +157,8 @@ already covered by spec 004's scripts.
 
 ## Done when
 
-- [ ] Every reject-table row has a failing-input test and a distinct error
-- [ ] Concurrent-apply test green under `-race`
-- [ ] `sonata action apply/list/show/enable/disable` honor `--output json`
-- [ ] Re-applying an unchanged file is a no-op (`changed: false`)
-- [ ] CLAUDE.md dependency list updated with `cel-go`
+- [x] Every reject-table row has a failing-input test and a distinct error
+- [x] Concurrent-apply test green under `-race`
+- [x] `sonata action apply/list/show/enable/disable` honor `--output json`
+- [x] Re-applying an unchanged file is a no-op (`changed: false`)
+- [x] CLAUDE.md dependency list updated with `cel-go`

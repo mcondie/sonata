@@ -227,8 +227,9 @@ Testability forced these, and they're better UX regardless:
 - Changing the workflow definition format is breaking while the format is
   unstable — say so in the PR description and update the README example.
 - Don't add dependencies for what the standard library covers. Current
-  intentional deps: Cobra, Viper, `modernc.org/sqlite`, a YAML parser, and
-  `rogpeppe/go-internal` (test-only, for testscript). Transport
-  is `net/http`.
+  intentional deps: Cobra, Viper, `modernc.org/sqlite`, a YAML parser
+  (`go.yaml.in/yaml/v3`), `github.com/google/cel-go` (filter and
+  `correlate_on` expressions), and `rogpeppe/go-internal` (test-only, for
+  testscript). Transport is `net/http`.
 - Don't run a dev daemon against the real state directory. Point `SONATA_DATABASE`
   and `SONATA_SOCKET` at a temp dir.

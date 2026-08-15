@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/mcondie/sonata/internal/store"
+	"github.com/mcondie/sonata/internal/workflow"
 )
 
 // ErrNoDaemon indicates nothing is listening on the socket. Callers
@@ -42,6 +43,8 @@ func errorStatus(err error) (status int, code string) {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return http.StatusNotFound, "not_found"
+	case errors.Is(err, workflow.ErrInvalidAction):
+		return http.StatusBadRequest, "invalid_action"
 	case errors.Is(err, ErrInvalid):
 		return http.StatusBadRequest, "invalid_request"
 	default:

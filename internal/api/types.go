@@ -84,6 +84,72 @@ type ListQueuesResponse struct {
 	Queues []QueueInfo `json:"queues"`
 }
 
+// ApplyActionRequest is the body of POST /v1/action.apply. Definition is the
+// action in JSON; the daemon parses and validates it again rather than
+// trusting the client, because ad-hoc callers hit the endpoint directly.
+type ApplyActionRequest struct {
+	Definition json.RawMessage `json:"definition"`
+}
+
+// ApplyActionResponse reports the stored version. Changed is false when the
+// definition matched the current version, so re-applying a directory of files
+// is idempotent.
+type ApplyActionResponse struct {
+	Name    string `json:"name"`
+	Version int64  `json:"version"`
+	Changed bool   `json:"changed"`
+	Enabled bool   `json:"enabled"`
+}
+
+// Action is the wire form of one stored action version.
+type Action struct {
+	Name       string          `json:"name"`
+	Version    int64           `json:"version"`
+	Definition json.RawMessage `json:"definition"`
+	Enabled    bool            `json:"enabled"`
+	CreatedAt  time.Time       `json:"created_at"`
+}
+
+// ListActionsRequest is the (empty) body of POST /v1/action.list.
+type ListActionsRequest struct{}
+
+// ActionSummary is one row of the action listing: the current version of a
+// name and whether it is enabled.
+type ActionSummary struct {
+	Name      string    `json:"name"`
+	Version   int64     `json:"version"`
+	Enabled   bool      `json:"enabled"`
+	Actor     string    `json:"actor"`
+	Inputs    []string  `json:"inputs"`
+	Output    string    `json:"output,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// ListActionsResponse lists the current version of every action, by name.
+type ListActionsResponse struct {
+	Actions []ActionSummary `json:"actions"`
+}
+
+// ShowActionRequest is the body of POST /v1/action.show. Version 0 means the
+// current version.
+type ShowActionRequest struct {
+	Name    string `json:"name"`
+	Version int64  `json:"version,omitempty"`
+}
+
+// SetActionEnabledRequest is the body of POST /v1/action.enable and
+// /v1/action.disable.
+type SetActionEnabledRequest struct {
+	Name string `json:"name"`
+}
+
+// SetActionEnabledResponse reports the flag as it now stands.
+type SetActionEnabledResponse struct {
+	Name    string `json:"name"`
+	Version int64  `json:"version"`
+	Enabled bool   `json:"enabled"`
+}
+
 // ErrorBody carries a machine-readable code and a human-readable message.
 type ErrorBody struct {
 	Code    string `json:"code"`

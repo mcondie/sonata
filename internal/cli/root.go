@@ -137,6 +137,7 @@ func newRootCmd(a *app) *cobra.Command {
 		newSendCmd(a),
 		newMessageCmd(a),
 		newQueueCmd(a),
+		newActionCmd(a),
 	)
 
 	// Cobra reports flag parse errors through this hook; map them to the

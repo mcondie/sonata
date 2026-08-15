@@ -57,6 +57,11 @@ func NewServer(opts ServerOptions) *Server {
 		handle(s, "message.list", s.messageList)
 		handle(s, "message.show", s.messageShow)
 		handle(s, "queue.list", s.queueList)
+		handle(s, "action.apply", s.actionApply)
+		handle(s, "action.list", s.actionList)
+		handle(s, "action.show", s.actionShow)
+		handle(s, "action.enable", s.actionEnable)
+		handle(s, "action.disable", s.actionDisable)
 	}
 
 	return s
