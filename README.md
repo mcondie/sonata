@@ -65,7 +65,7 @@ curl --unix-socket ~/.local/state/sonata/sonata.sock \
 
 ## Installation
 
-Requires Go 1.23+. One binary, no C toolchain — the SQLite driver is pure Go, so
+Requires Go 1.26+. One binary, no C toolchain — the SQLite driver is pure Go, so
 cross-compiling is a single env var.
 
 ```sh
@@ -242,6 +242,13 @@ store layer is built for it:
 - `busy_timeout` is set so readers wait through a checkpoint instead of erroring.
 
 ## Development
+
+The Go toolchain version is pinned in `.tool-versions`. With
+[asdf](https://asdf-vm.com) installed:
+
+```sh
+asdf install      # reads .tool-versions
+```
 
 ```sh
 make build        # ./bin/sonata
