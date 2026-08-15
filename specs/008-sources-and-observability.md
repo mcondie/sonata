@@ -71,6 +71,24 @@ queued. A daemon with a live `schedule` action never idles out —
 sources count as busy (unlike parked joins, a source's next fire needs
 a running process).
 
+**Sources only fire while a daemon runs — and nothing guarantees one.**
+The lifecycle model is autostart-on-*demand*: after `sonata down`, a
+crash the lockfile caught, or a reboot, no daemon exists until some
+CLI command happens to autostart one, and with no back-fill every fire
+in between is silently skipped. This is accepted (Sonata does not
+become an init system) but must be *visible*, not discovered:
+
+- `sonata status` on a running daemon reports the count of enabled
+  `schedule` actions; when no daemon is running and enabled sources
+  exist… it can't know (invariant 1) — which is exactly why the next
+  two exist.
+- `action.apply` of a `schedule` action returns (and the CLI prints) a
+  note that schedules fire only while a daemon runs, recommending
+  `sonata daemon` under launchd/systemd for always-on schedules.
+- The README's `schedule` section documents the no-daemon/no-fire and
+  no-back-fill behavior in the same paragraph that introduces the
+  actor type.
+
 ## Trace and graph
 
 - `trace.show {trace_id}` walks `messages.origin_message_id` +
@@ -89,7 +107,7 @@ a running process).
 `message.prune {older_than}`: in batched `write()` transactions,
 delete messages older than the cutoff **only if** every delivery of
 that message (and, for join members, every delivery sharing its
-`execution_id`) is terminal (`done|filtered|dead`), cascading their
+`execution_id`) is terminal (`done|filtered|dead|cancelled`), cascading their
 deliveries and any expired join residue. Returns counts. Config
 `retention` (default 0 = keep forever) runs the same logic on the
 scheduler's clock daily. `sonata prune` prints what was deleted;
@@ -106,7 +124,9 @@ fire after missed window" arithmetic; prune eligibility predicate
 **Layer 2:** fake-clock scheduler tests — `every` fires on schedule,
 `cron` fires at computed instants, no-overlap rule (slow tick skips
 the next fire and logs), source failure retries then dead-letters,
-fresh trace per fire; trace.show on a constructed history (pipeline
+fresh trace per fire; `status` reports the enabled-source count and
+`action.apply` of a schedule action returns the daemon-required note;
+trace.show on a constructed history (pipeline
 with a filtered branch, a retry, and a join) matches the expected
 tree; graph output for a registered mesh, both formats; prune deletes
 the eligible half of a constructed dataset and refuses the rest, under

@@ -91,6 +91,7 @@ state.
 deliveries(id, message_id, action_name, action_version,
            state, attempt, claimed_at, completed_at, error)
 state: pending → claimed → done | failed(retryable) | filtered | dead
+       any non-terminal → cancelled (action disabled or version superseded)
 ```
 
 Deliveries are what give the model:
@@ -145,6 +146,12 @@ join_timeout: 24h
 - If several messages from one input share a key before the sibling
   arrives, the earliest wins and later ones dead-letter as duplicates
   (simplest v1 rule; revisit if a real use case needs latest-wins).
+  **Acknowledged consequence:** this makes duplicate handling
+  timing-dependent — the same second message dead-letters if it lands
+  before the match completes but starts a fresh independent match if it
+  lands after. That asymmetry is accepted for v1, not accidental; a
+  use case that needs deterministic duplicate handling forces the
+  latest-wins/windowed revisit above.
 
 ### Cycles: allowed, hop-capped
 

@@ -110,8 +110,16 @@ CREATE TABLE actions (
   idempotent.
 - `enabled` lives on the *name* (latest version's flag governs; the
   enable/disable endpoints flip it by writing it to the current
-  version row). Disabled actions accrue no new deliveries once the
-  scheduler exists.
+  version row). **Apply carries the flag forward:** the new version
+  row inherits the current version's `enabled` value, never the column
+  default — applying an edit to a disabled action must not silently
+  re-enable it. Re-enabling is only ever the explicit
+  `action.enable` call. Disabled actions accrue no new deliveries once
+  the scheduler exists, and *disable cancels outstanding work*: the
+  action's non-terminal deliveries move to the terminal `cancelled`
+  state (mechanics owned by [spec 006](006-scheduler-and-executor.md);
+  in this slice, before the scheduler exists, the flag flip is the
+  whole behavior).
 
 ## API shape
 
@@ -138,7 +146,8 @@ bool/string type checks; canonicalization stability (apply → serialize
 **Layer 2:** endpoint tests through client → server → store: apply
 creates v1, edited apply creates v2, identical apply reports
 `changed: false`, show retrieves both versions, enable/disable
-round-trips, invalid definition returns the `invalid_action` shape.
+round-trips, applying a new version to a *disabled* action leaves it
+disabled, invalid definition returns the `invalid_action` shape.
 Concurrent applies of the same name from several goroutines under
 `-race`: versions come out dense and distinct (the `write()` serializer
 is what's under test).

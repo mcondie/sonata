@@ -50,7 +50,7 @@ CREATE TABLE deliveries (
     message_id     TEXT NOT NULL REFERENCES messages(id),
     action_name    TEXT NOT NULL,
     action_version INTEGER,                    -- NULL until claimed
-    state          TEXT NOT NULL,              -- pending|claimed|done|failed|filtered|dead
+    state          TEXT NOT NULL,              -- pending|claimed|done|failed|filtered|dead|cancelled
     attempt        INTEGER NOT NULL DEFAULT 0,
     not_before     TEXT,                       -- backoff gate, UTC
     pgid           INTEGER,                    -- live subprocess group
@@ -69,9 +69,20 @@ inserts, in the same transaction, one `pending` delivery per *enabled,
 non-join* action subscribed to that queue. Consequences, both
 intended: attaching a new action sees only future messages (new
 subscriber starts at the tail — replaying history is a possible later
-feature, not silent default behavior), and disabling an action stops
-new deliveries without touching in-flight ones. Applying a new action
-version does not re-deliver anything.
+feature, not silent default behavior). Applying a new action version
+does not re-deliver anything.
+
+**Disable cancels outstanding work.** The scheduler only claims for
+enabled actions, so a disabled action's `pending` and
+`failed`-awaiting-retry deliveries would otherwise sit non-terminal
+forever — keeping the idle tracker busy and blocking prune. Instead,
+`action.disable` (via a scheduler nudge, so the transition stays in
+the single goroutine) moves them to **`cancelled`**, a terminal state
+with error `action disabled`. Already-`claimed` executions run to
+completion untouched. `cancelled` is a record, not a queue: it is not
+replayable (`delivery.replay` stays dead-only) and re-enabling does
+not resurrect it — per the materialization rule above, a re-enabled
+action sees only future messages.
 
 ## Scheduler
 
@@ -82,6 +93,13 @@ cycle, per enabled action with `in-flight < concurrency`, it claims the
 oldest eligible `pending` (`not_before` ≤ now) delivery:
 
 1. Pin `action_version` = current version at claim time (spec 003).
+   **Supersession check:** deliveries were materialized against the
+   inputs of an older version, so the pinned version may no longer
+   subscribe to this delivery's queue — or may have changed the
+   action's join-ness (gained or lost `correlate_on`), which flips the
+   entire processing path. In either case the delivery resolves
+   `cancelled` with error `superseded by version N` instead of
+   executing under a definition that has no meaning for it.
 2. Enforce the hop cap: message `hops` ≥ `max_hops` → `dead`,
    error `hop limit exceeded`.
 3. Evaluate the input's filter (compiled CEL, cached): false →
@@ -162,7 +180,10 @@ parsing (empty, N lines, garbage line, oversized), hop-cap arithmetic.
 claim order, concurrency ceiling, filter → `filtered`, CEL eval error →
 `dead`, retry schedule → `dead` after max attempts, version pinned at
 claim while an apply lands mid-flight, replay-after-fix uses the new
-version, outbox atomicity (executor fake that reports success while the
+version, disable cancels `pending`/`failed` deliveries (and the idle
+tracker then reports idle) while a `claimed` one completes, claim
+under a version that dropped the input queue → `cancelled` with
+`superseded by version N`, outbox atomicity (executor fake that reports success while the
 store write is forced to fail once: no half-state). Contention test:
 appends from several goroutines while the scheduler drains, under
 `-race`. Real-subprocess executor tests: pipeline of two real actions
@@ -184,4 +205,6 @@ shows `failed`/retried rather than stuck `claimed`.
 - [ ] Grandchild-kill and stdout-cap executor tests green
 - [ ] `orphan_reap.txtar` passes in `make test-integ`
 - [ ] Idle timeout ignores request-quiet-but-busy daemons
+- [ ] Disable-cancels and version-supersession tests green (no
+      delivery can be stranded non-terminal by disable or apply)
 - [ ] design-notes.md no longer lists the two folded items

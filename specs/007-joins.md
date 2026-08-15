@@ -65,9 +65,21 @@ resolved inside scheduler transactions:
    deliveries as a unit — one subprocess ran for all of them. Retry
    re-fires with the same matched set (the wait rows are already
    consumed; the match itself is durable via the claimed deliveries'
-   shared `execution_id`). `delivery.replay` on any dead member of a
-   timed-out join re-enters that message into buffer/match as if it
-   had just arrived.
+   shared `execution_id`).
+6. **Replay.** Two kinds of dead join delivery, two behaviors, told
+   apart by `execution_id`:
+   - **Timeout dead** (no `execution_id` — it never matched):
+     `delivery.replay` re-enters that message into buffer/match as if
+     it had just arrived. Its partners are still missing, so this only
+     helps once they can arrive; otherwise it parks and times out
+     again.
+   - **Execution-failure dead** (`execution_id` set — the set matched,
+     ran, and exhausted `max_attempts`): the partners are dead *rows*,
+     not future messages, so buffer re-entry would wait forever.
+     Replaying **any** member resets the *entire matched set* to
+     re-fire as a unit — same messages, attempt 0, executed under the
+     current action version (the point of replaying after a fix).
+     The response lists the peer deliveries it reset.
 
 Schema:
 
@@ -85,7 +97,11 @@ ALTER TABLE deliveries ADD COLUMN execution_id TEXT;  -- groups a matched set
 CREATE INDEX join_waits_expiry ON join_waits(expires_at);
 ```
 
-The `deliveries.state` set gains `waiting`. The idle-busy rule from
+The `deliveries.state` set gains `waiting`. Spec 006's
+disable-cancels rule extends to it: disabling a join action moves its
+`waiting` deliveries to `cancelled` and deletes their wait rows in the
+same transaction — a disabled join must not hold a parked buffer that
+blocks prune. The idle-busy rule from
 spec 006 counts `waiting` as **not** busy (a daemon parked on a 24h
 join must be allowed to idle out — the wait survives restart in the
 DB, and expiry is re-evaluated against wall clock on the next start).
@@ -106,7 +122,10 @@ in either arrival order; three-input match; filter-rejected message
 never buffers; duplicate-key dead-letter; timeout → both `dead` with
 `join timeout` (only the waiting side, verify the never-arrived side
 produces nothing); replay of a timed-out member re-matches when the
-partner then arrives; retry re-fires the same matched set; version
+partner then arrives; replay of an execution-failure member resets and
+re-fires the whole matched set under the current version; disabling a
+join action cancels `waiting` members and clears their wait rows;
+retry re-fires the same matched set; version
 pinned at match time while an apply lands between first arrival and
 match; contention test appending correlated pairs from several
 goroutines under `-race`, asserting exactly one execution per key.
@@ -119,6 +138,8 @@ run a scheduler — parked waits still match/expire correctly.
 
 - [ ] Canonical two-input join green in-process under `-race`
 - [ ] Timeout, duplicate, and replay-rematch tests green
+- [ ] Replay of a failed execution resets the whole set; disable
+      cancels `waiting` deliveries and their wait rows
 - [ ] Restart-durability test green
 - [ ] Idle timeout treats `waiting` as idle
 - [ ] `delivery show` on a join member names its `execution_id` peers
