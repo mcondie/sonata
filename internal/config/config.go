@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
@@ -27,6 +28,25 @@ type Config struct {
 	Socket   string
 	Database string
 	LogLevel string
+	// IdleTimeout is applied to daemons this process autostarts, and to
+	// `sonata daemon` when its flag is unset. Zero (the default) means the
+	// daemon runs until stopped.
+	IdleTimeout time.Duration
+}
+
+// Env returns the SONATA_* environment for a child process that must resolve
+// the identical configuration — the detached daemon a CLI spawns. It is the
+// single source of truth for propagation: a Config field that is not
+// reflected here silently diverges between parent and child, so every new
+// field must be added in this function, in the same change.
+func (c *Config) Env() []string {
+	return []string{
+		"SONATA_STATE_DIR=" + c.StateDir,
+		"SONATA_SOCKET=" + c.Socket,
+		"SONATA_DATABASE=" + c.Database,
+		"SONATA_LOG_LEVEL=" + c.LogLevel,
+		"SONATA_IDLE_TIMEOUT=" + c.IdleTimeout.String(),
+	}
 }
 
 // LockPath returns the path of the daemon liveness lock.
@@ -77,6 +97,7 @@ func Load(v *viper.Viper, cfgFile string) (*Config, error) {
 	}
 	v.SetDefault("state_dir", def)
 	v.SetDefault("log_level", "info")
+	v.SetDefault("idle_timeout", time.Duration(0))
 
 	if cfgFile != "" {
 		v.SetConfigFile(cfgFile)
@@ -103,8 +124,9 @@ func Load(v *viper.Viper, cfgFile string) (*Config, error) {
 		return nil, err
 	}
 	c := &Config{
-		StateDir: stateDir,
-		LogLevel: v.GetString("log_level"),
+		StateDir:    stateDir,
+		LogLevel:    v.GetString("log_level"),
+		IdleTimeout: v.GetDuration("idle_timeout"),
 	}
 	if c.Socket, err = derive(v.GetString("socket"), stateDir, SocketName); err != nil {
 		return nil, err

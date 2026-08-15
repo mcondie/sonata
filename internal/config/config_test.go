@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/spf13/pflag"
@@ -176,5 +178,21 @@ func TestDerivedPathsAreAbsolute(t *testing.T) {
 
 	if !filepath.IsAbs(cfg.StateDir) {
 		t.Errorf("StateDir = %q, want an absolute path", cfg.StateDir)
+	}
+}
+
+// Env must cover every Config field: a field missing there silently diverges
+// between the CLI and the daemon it spawns. Adding a Config field breaks this
+// test until Env is updated — that is the point.
+func TestEnvCoversEveryConfigField(t *testing.T) {
+	fields := reflect.TypeOf(Config{}).NumField()
+	c := &Config{}
+	if got := len(c.Env()); got != fields {
+		t.Fatalf("Env returns %d vars but Config has %d fields; update Config.Env", got, fields)
+	}
+	for _, kv := range c.Env() {
+		if !strings.HasPrefix(kv, "SONATA_") || !strings.Contains(kv, "=") {
+			t.Errorf("malformed env entry %q", kv)
+		}
 	}
 }

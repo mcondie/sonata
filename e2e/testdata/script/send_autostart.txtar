@@ -1,0 +1,27 @@
+# A data command against a dead socket autostarts the daemon, appends, and
+# round-trips through --output json.
+
+env SONATA_IDLE_TIMEOUT=30s
+
+! exec sonata status
+stderr 'no daemon'
+
+stdin payload.json
+exec sonata send demo
+stdout '^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+stderr 'daemon autostarted'
+
+exec sonata status
+stdout 'running'
+
+exec sonata message list --queue demo --output json
+stdout '"queue": "demo"'
+stdout '"a": 1'
+
+exec sonata queue list
+stdout 'demo'
+
+exec sonata down
+
+-- payload.json --
+{"a": 1}

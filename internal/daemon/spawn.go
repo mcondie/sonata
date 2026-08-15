@@ -46,14 +46,10 @@ func Spawn(cfg *config.Config, idleTimeout time.Duration) (int, error) {
 	cmd.Stderr = logFile
 	// Setsid detaches the child into its own session and process group.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	// The child re-resolves config independently, so the paths must be
-	// propagated explicitly rather than inherited from flags.
-	cmd.Env = append(os.Environ(),
-		"SONATA_STATE_DIR="+cfg.StateDir,
-		"SONATA_SOCKET="+cfg.Socket,
-		"SONATA_DATABASE="+cfg.Database,
-		"SONATA_LOG_LEVEL="+cfg.LogLevel,
-	)
+	// The child re-resolves config independently, so the resolved settings
+	// must be propagated explicitly rather than inherited from flags.
+	// config.Env is the single source of truth for what gets forwarded.
+	cmd.Env = append(os.Environ(), cfg.Env()...)
 
 	if err := cmd.Start(); err != nil {
 		return 0, fmt.Errorf("start daemon: %w", err)

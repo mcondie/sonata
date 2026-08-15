@@ -8,7 +8,7 @@ one is scoped to a slice that can be built and verified on its own.
 | 001 | [Daemon lifecycle](001-daemon-lifecycle.md) — `up`/`status`/`down`/`daemon`, socket, locking, E2E harness | implemented |
 | 002 | [Startup race + `EnsureRunning`](002-startup-race-and-ensure-running.md) — tolerate dying predecessor, extract autostart primitive | implemented |
 | 003 | [Queue/action model](003-queue-action-model.md) — data model + execution semantics design record; workflows emerge from actions wired by queues | design accepted |
-| 004 | [Store + message plane](004-store-and-message-plane.md) — SQLite bring-up, `send`/list/show, autostart-on-demand | planned |
+| 004 | [Store + message plane](004-store-and-message-plane.md) — SQLite bring-up, `send`/list/show, autostart-on-demand | implemented |
 | 005 | [Action definitions](005-action-definitions.md) — parsing, CEL, validation, versioned `action apply` | planned |
 | 006 | [Scheduler + executor](006-scheduler-and-executor.md) — deliveries, retries, dead-letter, transactional outbox, subprocess actor | planned |
 | 007 | [Joins](007-joins.md) — correlation buffer, matching, TTL expiry | planned |

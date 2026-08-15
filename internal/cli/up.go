@@ -24,6 +24,9 @@ func newUpCmd(a *app) *cobra.Command {
 			"Idempotent: exits 0 if a daemon is already running.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if !cmd.Flags().Changed("idle-timeout") {
+				idleTimeout = a.cfg.IdleTimeout
+			}
 			return a.up(cmd.Context(), timeout, idleTimeout)
 		},
 	}

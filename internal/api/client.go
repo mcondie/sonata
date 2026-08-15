@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -33,6 +34,82 @@ func NewClient(socket string) *Client {
 
 // Socket returns the path this client dials.
 func (c *Client) Socket() string { return c.socket }
+
+// post issues a POST /v1/<endpoint> call and decodes the response into out.
+// Non-2xx responses come back as *Error carrying the server's code/message.
+func (c *Client) post(ctx context.Context, endpoint string, in, out any) error {
+	body, err := json.Marshal(in)
+	if err != nil {
+		return fmt.Errorf("%s: encode request: %w", endpoint, err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"http://sonata/v1/"+endpoint, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		if isNoDaemon(err) {
+			return fmt.Errorf("%w at %s", ErrNoDaemon, c.socket)
+		}
+		return fmt.Errorf("%s: %w", endpoint, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		var e ErrorResponse
+		if err := json.NewDecoder(resp.Body).Decode(&e); err == nil && e.Error.Message != "" {
+			return &Error{Code: e.Error.Code, Message: e.Error.Message}
+		}
+		return fmt.Errorf("%s: unexpected status %d", endpoint, resp.StatusCode)
+	}
+
+	if out == nil {
+		return nil
+	}
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return fmt.Errorf("%s: decode response: %w", endpoint, err)
+	}
+	return nil
+}
+
+// SendMessage appends a message to a queue.
+func (c *Client) SendMessage(ctx context.Context, req *SendMessageRequest) (*SendMessageResponse, error) {
+	var resp SendMessageResponse
+	if err := c.post(ctx, "message.send", req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ListMessages returns messages newest-first.
+func (c *Client) ListMessages(ctx context.Context, req *ListMessagesRequest) (*ListMessagesResponse, error) {
+	var resp ListMessagesResponse
+	if err := c.post(ctx, "message.list", req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ShowMessage returns one message by id.
+func (c *Client) ShowMessage(ctx context.Context, id string) (*Message, error) {
+	var resp Message
+	if err := c.post(ctx, "message.show", &ShowMessageRequest{ID: id}, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ListQueues returns every queue any message has referenced.
+func (c *Client) ListQueues(ctx context.Context) (*ListQueuesResponse, error) {
+	var resp ListQueuesResponse
+	if err := c.post(ctx, "queue.list", &ListQueuesRequest{}, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
 
 // Health probes the daemon. It returns ErrNoDaemon when nothing is listening.
 func (c *Client) Health(ctx context.Context) (*HealthResponse, error) {

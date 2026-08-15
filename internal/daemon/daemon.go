@@ -17,6 +17,7 @@ import (
 
 	"github.com/mcondie/sonata/internal/api"
 	"github.com/mcondie/sonata/internal/config"
+	"github.com/mcondie/sonata/internal/store"
 )
 
 // Options configures a daemon run.
@@ -89,12 +90,19 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	defer func() { _ = os.Remove(cfg.Socket) }()
 
+	st, err := store.Open(ctx, cfg.Database)
+	if err != nil {
+		return fmt.Errorf("open store: %w", err)
+	}
+	defer func() { _ = st.Close() }()
+
 	idle := newIdleTracker(opts.IdleTimeout)
 	srv := &http.Server{
 		Handler: api.NewServer(api.ServerOptions{
 			Version:    opts.Version,
 			StartedAt:  time.Now(),
 			Log:        log,
+			Store:      st,
 			OnActivity: idle.touch,
 		}),
 	}

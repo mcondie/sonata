@@ -1,0 +1,31 @@
+# Several concurrent clients discover a dead socket at once; exactly one may
+# spawn a daemon, the rest must wait on the start lock and use it.
+
+env SONATA_IDLE_TIMEOUT=30s
+
+! exec sonata status
+
+stdin payload.json
+exec sonata send demo &
+stdin payload.json
+exec sonata send demo &
+stdin payload.json
+exec sonata send demo &
+stdin payload.json
+exec sonata send demo &
+wait
+
+exec sonata status
+stdout 'running'
+
+# One daemon, not four: the daemon log records a single start.
+grep -count=1 'daemon started' $SONATA_STATE_DIR/daemon.log
+
+# Every racing send landed its message.
+exec sonata message list --queue demo --output json
+stdout -count=4 '"queue": "demo"'
+
+exec sonata down
+
+-- payload.json --
+{"race": true}

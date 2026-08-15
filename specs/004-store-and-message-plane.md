@@ -1,6 +1,6 @@
 # Spec 004 — Store foundation and the message plane
 
-**Status:** planned
+**Status:** implemented
 **Scope:** the SQLite store (`internal/store`) and the message half of the
 [queue/action model](003-queue-action-model.md): append, read, and trace
 messages — no actions, no execution. Also the first data commands, which
@@ -133,10 +133,11 @@ endpoints, including the not-found and invalid-JSON error shapes.
 
 ## Done when
 
-- [ ] `make test` green including the 8-goroutine store test under `-race`
-- [ ] Both E2E scripts pass in `make test-integ`
-- [ ] `sonata send`/`message list|show`/`queue list` all honor
+- [x] `make test` green including the 8-goroutine store test under `-race`
+- [x] Both E2E scripts pass in `make test-integ`
+- [x] `sonata send`/`message list|show`/`queue list` all honor
       `--output json`
-- [ ] CLI still does not import `internal/store` (invariant 1)
-- [ ] `Spawn` env list derived from `internal/config`; design note deleted
-- [ ] CLAUDE.md dependency list updated with `modernc.org/sqlite`
+- [x] CLI still does not import `internal/store` (invariant 1)
+- [x] `Spawn` env list derived from `internal/config`; design note deleted
+- [x] CLAUDE.md dependency list updated with `modernc.org/sqlite`
+      (already listed as a settled decision; verified present)

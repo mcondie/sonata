@@ -19,6 +19,9 @@ func newDaemonCmd(a *app) *cobra.Command {
 			"Use `sonata up` to start a detached daemon.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if !cmd.Flags().Changed("idle-timeout") {
+				idleTimeout = a.cfg.IdleTimeout
+			}
 			err := daemon.Run(cmd.Context(), daemon.Options{
 				Config:      a.cfg,
 				IdleTimeout: idleTimeout,
