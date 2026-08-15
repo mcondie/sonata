@@ -1,0 +1,71 @@
+# A daemon killed with SIGKILL mid-run leaves a claimed delivery and a live
+# task process group. The next daemon must reap both at startup: kill the
+# group, reset the delivery to failed, and re-run it.
+
+env SONATA_IDLE_TIMEOUT=60s
+
+exec sonata up
+
+stdin action.json
+exec sonata action apply -f -
+stdout 'sleeper version 1'
+
+stdin msg.json
+exec sonata send work
+
+# Wait until the task subprocess is actually running.
+exec sh waittask.sh
+
+# Remember the running task's pid, then SIGKILL the daemon — no graceful
+# stop, no cleanup. The task group survives, orphaned.
+exec sh -c 'cp task.pid old.pid'
+exec sh killdaemon.sh
+! exec sonata status
+
+# A fresh daemon reaps before serving: the orphaned group must be gone by
+# the time `up` returns.
+exec sonata up
+exec sh checkdead.sh
+
+# The delivery came back as a retry, not a stuck claim: attempt 2 runs.
+exec sh waitattempt.sh
+
+exec sonata down
+
+-- action.json --
+{
+  "name": "sleeper",
+  "inputs": [{"queue": "work"}],
+  "actor": "subprocess",
+  "instructions": {"command": ["sh", "-c", "echo $$ > task.pid; sleep 300"]}
+}
+-- msg.json --
+{"job": 1}
+-- waittask.sh --
+for i in $(seq 1 100); do
+  [ -s task.pid ] && exit 0
+  sleep 0.1
+done
+echo "task never started" >&2
+exit 1
+-- killdaemon.sh --
+kill -9 "$(cat "$SONATA_STATE_DIR/sonata.lock")"
+# Give the kernel a moment to tear the process down.
+sleep 0.2
+exit 0
+-- checkdead.sh --
+if kill -0 "$(cat old.pid)" 2>/dev/null; then
+  echo "orphaned task survived the reap" >&2
+  exit 1
+fi
+exit 0
+-- waitattempt.sh --
+for i in $(seq 1 100); do
+  if sonata delivery list --output json | grep -q '"attempt": 2'; then
+    exit 0
+  fi
+  sleep 0.1
+done
+echo "delivery never retried after reap:" >&2
+sonata delivery list --output json >&2
+exit 1

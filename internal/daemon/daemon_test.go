@@ -343,3 +343,61 @@ func indexOf(s, sub string) int {
 	}
 	return -1
 }
+
+// A request-quiet daemon that is still executing a delivery must not idle
+// out; once the work drains it must. This pins the busy signal the idle
+// tracker consults.
+func TestIdleTimeoutWaitsForBusyDeliveries(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test: waits on real clocks")
+	}
+	cfg := testConfig(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch := make(chan error, 1)
+	go func() {
+		ch <- Run(ctx, Options{
+			Config:      cfg,
+			IdleTimeout: 500 * time.Millisecond,
+			Version:     "test",
+			Log:         discardLogger(),
+		})
+	}()
+
+	client := api.NewClient(cfg.Socket)
+	if _, err := WaitReady(context.Background(), client, 5*time.Second); err != nil {
+		t.Fatalf("daemon never ready: %v", err)
+	}
+
+	def := []byte(`{"name":"slow","inputs":[{"queue":"q"}],"actor":"subprocess",` +
+		`"instructions":{"command":["sh","-c","sleep 2"]}}`)
+	if _, err := client.ApplyAction(context.Background(), &api.ApplyActionRequest{Definition: def}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if _, err := client.SendMessage(context.Background(), &api.SendMessageRequest{
+		Queue: "q", Payload: []byte(`{}`),
+	}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+
+	// Well past the idle timeout, the daemon must still be alive: the
+	// delivery is executing and no requests are arriving.
+	time.Sleep(1200 * time.Millisecond)
+	select {
+	case err := <-ch:
+		t.Fatalf("daemon idled out mid-run: %v", err)
+	default:
+	}
+
+	// After the task drains (~2s total) the idle countdown restarts and the
+	// daemon exits on its own.
+	select {
+	case err := <-ch:
+		if err != nil {
+			t.Fatalf("daemon exited with error: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("daemon never idled out after the work drained")
+	}
+}

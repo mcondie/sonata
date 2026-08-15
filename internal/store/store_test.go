@@ -40,7 +40,7 @@ func TestMigrateIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first open: %v", err)
 	}
-	if err := s1.AppendMessage(ctx, testMessage("q")); err != nil {
+	if _, err := s1.AppendMessage(ctx, testMessage("q")); err != nil {
 		t.Fatalf("append: %v", err)
 	}
 	if err := s1.Close(); err != nil {
@@ -69,7 +69,7 @@ func TestAppendGetRoundTrip(t *testing.T) {
 	origin := "builder"
 	var version int64 = 3
 	parent := testMessage("parents")
-	if err := s.AppendMessage(ctx, parent); err != nil {
+	if _, err := s.AppendMessage(ctx, parent); err != nil {
 		t.Fatalf("append parent: %v", err)
 	}
 
@@ -77,7 +77,7 @@ func TestAppendGetRoundTrip(t *testing.T) {
 	m.OriginAction = &origin
 	m.OriginActionVersion = &version
 	m.OriginMessageID = &parent.ID
-	if err := s.AppendMessage(ctx, m); err != nil {
+	if _, err := s.AppendMessage(ctx, m); err != nil {
 		t.Fatalf("append: %v", err)
 	}
 
@@ -116,13 +116,13 @@ func TestListFiltersAndPagination(t *testing.T) {
 	var aIDs []string
 	for i := 0; i < 5; i++ {
 		m := testMessage("a")
-		if err := s.AppendMessage(ctx, m); err != nil {
+		if _, err := s.AppendMessage(ctx, m); err != nil {
 			t.Fatalf("append: %v", err)
 		}
 		aIDs = append(aIDs, m.ID)
 	}
 	traced := testMessage("b")
-	if err := s.AppendMessage(ctx, traced); err != nil {
+	if _, err := s.AppendMessage(ctx, traced); err != nil {
 		t.Fatalf("append: %v", err)
 	}
 
@@ -165,7 +165,7 @@ func TestListQueues(t *testing.T) {
 	ctx := context.Background()
 
 	for _, q := range []string{"b", "a", "b", "b"} {
-		if err := s.AppendMessage(ctx, testMessage(q)); err != nil {
+		if _, err := s.AppendMessage(ctx, testMessage(q)); err != nil {
 			t.Fatalf("append: %v", err)
 		}
 	}
@@ -194,7 +194,7 @@ func TestConcurrentAppendAndList(t *testing.T) {
 		go func(w int) {
 			defer wg.Done()
 			for i := 0; i < per; i++ {
-				if err := s.AppendMessage(ctx, testMessage(fmt.Sprintf("q%d", w))); err != nil {
+				if _, err := s.AppendMessage(ctx, testMessage(fmt.Sprintf("q%d", w))); err != nil {
 					errs <- fmt.Errorf("writer %d: %w", w, err)
 					return
 				}

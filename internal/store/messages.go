@@ -42,12 +42,24 @@ const (
 	maxListLimit     = 1000
 )
 
-// AppendMessage inserts a fully populated message. The caller (the API
-// handler) owns stamping — the store stores what it is given.
-func (s *Store) AppendMessage(ctx context.Context, m *Message) error {
-	return s.write(ctx, func(tx *sql.Tx) error {
-		return insertMessage(ctx, tx, m)
+// AppendMessage inserts a fully populated message and, in the same
+// transaction, materializes one pending delivery per subscribed action.
+// The caller (the API handler) owns stamping — the store stores what it is
+// given. Returns how many deliveries were created.
+func (s *Store) AppendMessage(ctx context.Context, m *Message) (int, error) {
+	created := 0
+	err := s.write(ctx, func(tx *sql.Tx) error {
+		if err := insertMessage(ctx, tx, m); err != nil {
+			return err
+		}
+		var err error
+		created, err = materializeDeliveries(ctx, tx, m)
+		return err
 	})
+	if err != nil {
+		return 0, err
+	}
+	return created, nil
 }
 
 // insertMessage is split out so future callers (the executor's transactional

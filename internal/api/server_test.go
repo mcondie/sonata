@@ -17,9 +17,15 @@ import (
 )
 
 // startServer serves an in-process API over a real unix socket and returns a
-// client for it. Socket lives under /tmp: macOS t.TempDir() paths overrun
-// sun_path.
+// client for it.
 func startServer(t *testing.T, st *store.Store) *Client {
+	t.Helper()
+	return startServerOpts(t, ServerOptions{Store: st})
+}
+
+// startServerOpts is startServer with full control over the options. Socket
+// lives under /tmp: macOS t.TempDir() paths overrun sun_path.
+func startServerOpts(t *testing.T, opts ServerOptions) *Client {
 	t.Helper()
 	sockDir, err := os.MkdirTemp("/tmp", "sn")
 	if err != nil {
@@ -33,10 +39,10 @@ func startServer(t *testing.T, st *store.Store) *Client {
 		t.Fatalf("listen: %v", err)
 	}
 
-	srv := &http.Server{Handler: NewServer(ServerOptions{
-		Store: st,
-		Log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
-	})}
+	if opts.Log == nil {
+		opts.Log = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
+	srv := &http.Server{Handler: NewServer(opts)}
 	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(func() { _ = srv.Close() })
 

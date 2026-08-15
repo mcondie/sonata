@@ -150,6 +150,46 @@ type SetActionEnabledResponse struct {
 	Enabled bool   `json:"enabled"`
 }
 
+// Delivery is the wire form of one per-(message × action) processing record.
+type Delivery struct {
+	ID            string     `json:"id"`
+	MessageID     *string    `json:"message_id,omitempty"`
+	ActionName    string     `json:"action"`
+	ActionVersion *int64     `json:"action_version,omitempty"`
+	State         string     `json:"state"`
+	Attempt       int        `json:"attempt"`
+	NotBefore     *time.Time `json:"not_before,omitempty"`
+	StderrTail    *string    `json:"stderr_tail,omitempty"`
+	Error         *string    `json:"error,omitempty"`
+	ClaimedAt     *time.Time `json:"claimed_at,omitempty"`
+	CompletedAt   *time.Time `json:"completed_at,omitempty"`
+}
+
+// ListDeliveriesRequest is the body of POST /v1/delivery.list.
+type ListDeliveriesRequest struct {
+	Action    string `json:"action,omitempty"`
+	State     string `json:"state,omitempty"`
+	MessageID string `json:"message_id,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+	BeforeID  string `json:"before_id,omitempty"`
+}
+
+// ListDeliveriesResponse returns deliveries newest-first.
+type ListDeliveriesResponse struct {
+	Deliveries []Delivery `json:"deliveries"`
+}
+
+// ShowDeliveryRequest is the body of POST /v1/delivery.show.
+type ShowDeliveryRequest struct {
+	ID string `json:"id"`
+}
+
+// ReplayDeliveryRequest is the body of POST /v1/delivery.replay. Only dead
+// deliveries replay; anything else is a 409 not_dead.
+type ReplayDeliveryRequest struct {
+	ID string `json:"id"`
+}
+
 // ErrorBody carries a machine-readable code and a human-readable message.
 type ErrorBody struct {
 	Code    string `json:"code"`

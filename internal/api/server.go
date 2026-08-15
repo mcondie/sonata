@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mcondie/sonata/internal/store"
@@ -23,9 +24,23 @@ type ServerOptions struct {
 	// health is served.
 	Store *store.Store
 
+	// Scheduler, when set, is told about new work and executes the
+	// transitions that must stay in its goroutine (disable-cancel).
+	Scheduler SchedulerControl
+
 	// OnActivity, when set, is called on every request. The daemon uses it
 	// to drive its idle timeout.
 	OnActivity func()
+}
+
+// SchedulerControl is the handlers' view of the scheduler. Defined here so
+// the api package does not import the scheduler.
+type SchedulerControl interface {
+	// WorkAdded records n new busy deliveries and wakes the loop.
+	WorkAdded(n int)
+	// CancelAction cancels an action's outstanding deliveries inside the
+	// scheduler goroutine, returning how many were cancelled.
+	CancelAction(ctx context.Context, name string) (int, error)
 }
 
 // Server implements the daemon's HTTP API.
@@ -33,9 +48,21 @@ type Server struct {
 	opts ServerOptions
 	mux  *http.ServeMux
 
+	// inFlight counts requests currently being served; part of the daemon's
+	// idle decision — a long request must not let the daemon idle out.
+	inFlight atomic.Int64
+
 	mu  sync.Mutex
 	pid int
 }
+
+// InFlight reports how many requests are currently being served.
+func (s *Server) InFlight() int64 { return s.inFlight.Load() }
+
+// SetOnActivity installs the activity hook after construction — the daemon's
+// idle tracker needs the built Server (for InFlight) before it can exist.
+// Must be called before the server starts serving.
+func (s *Server) SetOnActivity(fn func()) { s.opts.OnActivity = fn }
 
 // NewServer builds the handler tree.
 func NewServer(opts ServerOptions) *Server {
@@ -62,12 +89,17 @@ func NewServer(opts ServerOptions) *Server {
 		handle(s, "action.show", s.actionShow)
 		handle(s, "action.enable", s.actionEnable)
 		handle(s, "action.disable", s.actionDisable)
+		handle(s, "delivery.list", s.deliveryList)
+		handle(s, "delivery.show", s.deliveryShow)
+		handle(s, "delivery.replay", s.deliveryReplay)
 	}
 
 	return s
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.inFlight.Add(1)
+	defer s.inFlight.Add(-1)
 	if s.opts.OnActivity != nil {
 		s.opts.OnActivity()
 	}
@@ -140,8 +172,13 @@ func (s *Server) messageSend(ctx context.Context, req *SendMessageRequest) (*Sen
 		TraceID:   store.NewID(),
 		CreatedAt: time.Now().UTC(),
 	}
-	if err := s.opts.Store.AppendMessage(ctx, m); err != nil {
+	created, err := s.opts.Store.AppendMessage(ctx, m)
+	if err != nil {
 		return nil, err
+	}
+	// The scheduler cannot see the append happen; tell it work exists.
+	if s.opts.Scheduler != nil && created > 0 {
+		s.opts.Scheduler.WorkAdded(created)
 	}
 	return &SendMessageResponse{ID: m.ID, TraceID: m.TraceID, CreatedAt: m.CreatedAt}, nil
 }

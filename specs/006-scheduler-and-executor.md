@@ -1,6 +1,6 @@
 # Spec 006 — Scheduler and subprocess executor
 
-**Status:** planned
+**Status:** implemented
 **Scope:** the execution half of the model for single-input actions:
 deliveries, the single-goroutine scheduler, the subprocess actor, the
 transactional outbox, retry/dead-letter, and the `delivery.*`
@@ -200,11 +200,11 @@ shows `failed`/retried rather than stuck `claimed`.
 
 ## Done when
 
-- [ ] Two-action pipeline test green in-process under `-race`
-- [ ] Outbox atomicity and claim-time version tests green
-- [ ] Grandchild-kill and stdout-cap executor tests green
-- [ ] `orphan_reap.txtar` passes in `make test-integ`
-- [ ] Idle timeout ignores request-quiet-but-busy daemons
-- [ ] Disable-cancels and version-supersession tests green (no
+- [x] Two-action pipeline test green in-process under `-race`
+- [x] Outbox atomicity and claim-time version tests green
+- [x] Grandchild-kill and stdout-cap executor tests green
+- [x] `orphan_reap.txtar` passes in `make test-integ`
+- [x] Idle timeout ignores request-quiet-but-busy daemons
+- [x] Disable-cancels and version-supersession tests green (no
       delivery can be stranded non-terminal by disable or apply)
-- [ ] design-notes.md no longer lists the two folded items
+- [x] design-notes.md no longer lists the two folded items

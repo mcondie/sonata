@@ -17,6 +17,8 @@ import (
 
 	"github.com/mcondie/sonata/internal/api"
 	"github.com/mcondie/sonata/internal/config"
+	"github.com/mcondie/sonata/internal/executor"
+	"github.com/mcondie/sonata/internal/scheduler"
 	"github.com/mcondie/sonata/internal/store"
 )
 
@@ -96,16 +98,60 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	defer func() { _ = st.Close() }()
 
-	idle := newIdleTracker(opts.IdleTimeout)
-	srv := &http.Server{
-		Handler: api.NewServer(api.ServerOptions{
-			Version:    opts.Version,
-			StartedAt:  time.Now(),
-			Log:        log,
-			Store:      st,
-			OnActivity: idle.touch,
-		}),
+	// A predecessor that died mid-run left claimed deliveries whose process
+	// groups nobody watches. Reap before serving, so their retries are
+	// eligible from the first dispatch.
+	if err := scheduler.ReapOrphans(ctx, st, log); err != nil {
+		return fmt.Errorf("reap orphans: %w", err)
 	}
+
+	sched := scheduler.New(scheduler.Options{
+		Store:    st,
+		Executor: executor.Subprocess{},
+		Clock:    scheduler.RealClock{},
+		Config: scheduler.Config{
+			MaxHops:            cfg.MaxHops,
+			DefaultMaxAttempts: cfg.DefaultMaxAttempts,
+			DefaultTaskTimeout: cfg.DefaultTaskTimeout,
+			BackoffBase:        cfg.BackoffBase,
+			BackoffCap:         cfg.BackoffCap,
+			StdoutCap:          cfg.StdoutCap,
+		},
+		Log: log,
+	})
+	schedCtx, stopSched := context.WithCancel(context.Background())
+	schedDone := make(chan error, 1)
+	go func() { schedDone <- sched.Run(schedCtx) }()
+	defer func() {
+		stopSched()
+		if err := <-schedDone; err != nil {
+			log.Error("scheduler stopped with error", "error", err)
+		}
+	}()
+	// Serve nothing until the scheduler has seeded its busy counter, or a
+	// handler's work accounting could be clobbered by the seed.
+	select {
+	case <-sched.Ready():
+	case err := <-schedDone:
+		schedDone <- err // re-arm for the deferred drain
+		return fmt.Errorf("scheduler failed to start: %w", err)
+	}
+
+	apiServer := api.NewServer(api.ServerOptions{
+		Version:   opts.Version,
+		StartedAt: time.Now(),
+		Log:       log,
+		Store:     st,
+		Scheduler: sched,
+	})
+	// Idle means: no request being served, none arrived recently, and no
+	// delivery pending, awaiting retry, or executing. Request-quiet but busy
+	// daemons must not exit mid-run.
+	idle := newIdleTracker(opts.IdleTimeout, func() bool {
+		return apiServer.InFlight() > 0 || sched.Busy()
+	})
+	apiServer.SetOnActivity(idle.touch)
+	srv := &http.Server{Handler: apiServer}
 
 	sigCtx, stop := signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
@@ -152,9 +198,13 @@ func Run(ctx context.Context, opts Options) error {
 	return nil
 }
 
-// idleTracker fires when no request has arrived for the configured duration.
+// idleTracker fires when no request has arrived for the configured duration
+// and the busy probe reports nothing running. Request arrival alone is the
+// wrong signal once runs outlive requests — a daemon executing a long task
+// with no client polling it must not idle out.
 type idleTracker struct {
 	timeout time.Duration
+	busy    func() bool
 	ch      chan struct{}
 	once    sync.Once
 
@@ -162,8 +212,8 @@ type idleTracker struct {
 	last time.Time
 }
 
-func newIdleTracker(timeout time.Duration) *idleTracker {
-	t := &idleTracker{timeout: timeout, ch: make(chan struct{}), last: time.Now()}
+func newIdleTracker(timeout time.Duration, busy func() bool) *idleTracker {
+	t := &idleTracker{timeout: timeout, busy: busy, ch: make(chan struct{}), last: time.Now()}
 	if timeout > 0 {
 		go t.watch()
 	}
@@ -190,9 +240,16 @@ func (t *idleTracker) watch() {
 		t.mu.Lock()
 		idleFor := time.Since(t.last)
 		t.mu.Unlock()
-		if idleFor >= t.timeout {
-			t.once.Do(func() { close(t.ch) })
-			return
+		if idleFor < t.timeout {
+			continue
 		}
+		if t.busy != nil && t.busy() {
+			// Still working: treat activity as ongoing so the countdown
+			// restarts once the work drains.
+			t.touch()
+			continue
+		}
+		t.once.Do(func() { close(t.ch) })
+		return
 	}
 }

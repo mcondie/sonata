@@ -151,6 +151,33 @@ func (c *Client) SetActionEnabled(ctx context.Context, name string, enabled bool
 	return &resp, nil
 }
 
+// ListDeliveries returns deliveries newest-first.
+func (c *Client) ListDeliveries(ctx context.Context, req *ListDeliveriesRequest) (*ListDeliveriesResponse, error) {
+	var resp ListDeliveriesResponse
+	if err := c.post(ctx, "delivery.list", req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ShowDelivery returns one delivery by id.
+func (c *Client) ShowDelivery(ctx context.Context, id string) (*Delivery, error) {
+	var resp Delivery
+	if err := c.post(ctx, "delivery.show", &ShowDeliveryRequest{ID: id}, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ReplayDelivery resets a dead delivery to pending.
+func (c *Client) ReplayDelivery(ctx context.Context, id string) (*Delivery, error) {
+	var resp Delivery
+	if err := c.post(ctx, "delivery.replay", &ReplayDeliveryRequest{ID: id}, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 // Health probes the daemon. It returns ErrNoDaemon when nothing is listening.
 func (c *Client) Health(ctx context.Context) (*HealthResponse, error) {
 	// The host in the URL is ignored by the Unix dialler but must be

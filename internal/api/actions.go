@@ -96,6 +96,17 @@ func (s *Server) setActionEnabled(ctx context.Context, req *SetActionEnabledRequ
 	if err != nil {
 		return nil, err
 	}
+	// Disable cancels outstanding work — a disabled action's pending and
+	// retry-waiting deliveries would otherwise sit non-terminal forever,
+	// keeping the daemon busy and blocking prune. The scheduler executes the
+	// transition so it cannot race a concurrent claim.
+	if !enabled && s.opts.Scheduler != nil {
+		if n, err := s.opts.Scheduler.CancelAction(ctx, a.Name); err != nil {
+			return nil, err
+		} else if n > 0 {
+			s.opts.Log.Info("cancelled deliveries on disable", "action", a.Name, "count", n)
+		}
+	}
 	return &SetActionEnabledResponse{Name: a.Name, Version: a.Version, Enabled: a.Enabled}, nil
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +33,23 @@ type Config struct {
 	// `sonata daemon` when its flag is unset. Zero (the default) means the
 	// daemon runs until stopped.
 	IdleTimeout time.Duration
+
+	// MaxHops dead-letters a message whose causal chain exceeds this many
+	// producing actions — the guard that makes cycles safe. Default 100.
+	MaxHops int
+	// DefaultMaxAttempts is the retry limit for actions that don't set
+	// max_attempts. Default 3.
+	DefaultMaxAttempts int
+	// DefaultTaskTimeout bounds a task subprocess that doesn't set
+	// instructions.timeout. Default 5m.
+	DefaultTaskTimeout time.Duration
+	// BackoffBase and BackoffCap shape the retry schedule:
+	// min(base·2^(attempt−1), cap), ±20% jitter. Defaults 1s and 60s.
+	BackoffBase time.Duration
+	BackoffCap  time.Duration
+	// StdoutCap fails a delivery whose subprocess writes more than this many
+	// bytes to stdout, rather than truncating silently. Default 4MiB.
+	StdoutCap int64
 }
 
 // Env returns the SONATA_* environment for a child process that must resolve
@@ -46,6 +64,12 @@ func (c *Config) Env() []string {
 		"SONATA_DATABASE=" + c.Database,
 		"SONATA_LOG_LEVEL=" + c.LogLevel,
 		"SONATA_IDLE_TIMEOUT=" + c.IdleTimeout.String(),
+		"SONATA_MAX_HOPS=" + strconv.Itoa(c.MaxHops),
+		"SONATA_DEFAULT_MAX_ATTEMPTS=" + strconv.Itoa(c.DefaultMaxAttempts),
+		"SONATA_DEFAULT_TASK_TIMEOUT=" + c.DefaultTaskTimeout.String(),
+		"SONATA_BACKOFF_BASE=" + c.BackoffBase.String(),
+		"SONATA_BACKOFF_CAP=" + c.BackoffCap.String(),
+		"SONATA_STDOUT_CAP=" + strconv.FormatInt(c.StdoutCap, 10),
 	}
 }
 
@@ -98,6 +122,12 @@ func Load(v *viper.Viper, cfgFile string) (*Config, error) {
 	v.SetDefault("state_dir", def)
 	v.SetDefault("log_level", "info")
 	v.SetDefault("idle_timeout", time.Duration(0))
+	v.SetDefault("max_hops", 100)
+	v.SetDefault("default_max_attempts", 3)
+	v.SetDefault("default_task_timeout", 5*time.Minute)
+	v.SetDefault("backoff_base", time.Second)
+	v.SetDefault("backoff_cap", time.Minute)
+	v.SetDefault("stdout_cap", int64(4<<20))
 
 	if cfgFile != "" {
 		v.SetConfigFile(cfgFile)
@@ -124,9 +154,15 @@ func Load(v *viper.Viper, cfgFile string) (*Config, error) {
 		return nil, err
 	}
 	c := &Config{
-		StateDir:    stateDir,
-		LogLevel:    v.GetString("log_level"),
-		IdleTimeout: v.GetDuration("idle_timeout"),
+		StateDir:           stateDir,
+		LogLevel:           v.GetString("log_level"),
+		IdleTimeout:        v.GetDuration("idle_timeout"),
+		MaxHops:            v.GetInt("max_hops"),
+		DefaultMaxAttempts: v.GetInt("default_max_attempts"),
+		DefaultTaskTimeout: v.GetDuration("default_task_timeout"),
+		BackoffBase:        v.GetDuration("backoff_base"),
+		BackoffCap:         v.GetDuration("backoff_cap"),
+		StdoutCap:          v.GetInt64("stdout_cap"),
 	}
 	if c.Socket, err = derive(v.GetString("socket"), stateDir, SocketName); err != nil {
 		return nil, err

@@ -45,6 +45,8 @@ func errorStatus(err error) (status int, code string) {
 		return http.StatusNotFound, "not_found"
 	case errors.Is(err, workflow.ErrInvalidAction):
 		return http.StatusBadRequest, "invalid_action"
+	case errors.Is(err, store.ErrNotDead):
+		return http.StatusConflict, "not_dead"
 	case errors.Is(err, ErrInvalid):
 		return http.StatusBadRequest, "invalid_request"
 	default:

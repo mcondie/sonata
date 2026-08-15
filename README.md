@@ -7,8 +7,9 @@ concurrently to define, trigger, and inspect that work.
 
 Everything runs on your machine. No cluster, no broker, no network dependency.
 
-> **Early development.** The message and action planes are built; execution is
-> not. See [Status](#status) for exactly what runs today.
+> **Early development.** Single-input actions execute end to end — pipelines,
+> filters, retries, dead-letter, replay. Joins and scheduled sources are not
+> built yet. See [Status](#status) for exactly what runs today.
 
 ## Why
 
@@ -372,12 +373,12 @@ stable.
 | [003](specs/003-queue-action-model.md) Queue/action model — design record | accepted |
 | [004](specs/004-store-and-message-plane.md) Store + message plane — `send`, `message`, `queue` | implemented |
 | [005](specs/005-action-definitions.md) Action definitions — parsing, CEL, validation, versioned `action apply` | implemented |
-| [006](specs/006-scheduler-and-executor.md) Scheduler + executor — deliveries, retries, dead-letter, subprocess actor | planned |
+| [006](specs/006-scheduler-and-executor.md) Scheduler + executor — deliveries, retries, dead-letter, subprocess actor | implemented |
 | [007](specs/007-joins.md) Joins — correlation buffer, matching, TTL expiry | planned |
 | [008](specs/008-sources-and-observability.md) Sources + observability — `schedule` actor, `trace`, `graph`, `prune` | planned |
 
-**Registered actions are inert until slice 006.** You can send messages and
-apply, version, and inspect actions today; nothing executes yet.
+**Join actions (`correlate_on`) are inert until slice 007.** They can be
+applied and versioned today, but the scheduler does not match them yet.
 
 ## License
 
