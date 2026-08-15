@@ -130,19 +130,91 @@ if testing.Short() {
 
 `CGO_ENABLED=0` is exported by the Makefile. Don't override it.
 
-## Testing expectations
+## Testing strategy
 
-- Store tests use a real SQLite file in `t.TempDir()`, not mocks. SQLite is fast
-  enough and mocks hide constraint bugs.
-- **Concurrency has to be tested, not reasoned about.** Anything touching the
-  store or scheduler needs a test that hits it from several goroutines and runs
-  under `-race`. The failure modes here only appear under contention.
-- Scheduler tests inject a fake clock and a fake executor. Never use
-  `time.Sleep` to synchronize — it's flaky under load.
-- Daemon lifecycle and auto-start go in integration tests, with a fresh socket
-  and DB per test. Auto-start needs a test that races several clients against a
-  dead socket and asserts exactly one daemon results.
-- New endpoints need a test exercising the CLI → daemon path end to end.
+Three layers. Put each test at the **lowest layer that can actually catch the
+bug** — the common failure mode is pushing scheduler and store behavior up into
+E2E because it feels "more realistic," which trades sub-second feedback and
+`-race` for a slow, flaky suite.
+
+### Layer 1 — unit
+
+Pure logic, no I/O: cycle detection, config precedence, retry backoff, DAG
+readiness. Milliseconds. Most tests live here.
+
+### Layer 2 — in-process integration
+
+Real SQLite in a temp dir and the daemon's HTTP server started **in-process**,
+driven through the API client. Covers scheduler, store, executor, and handlers
+together without spawning anything. This is where the bulk of daemon coverage
+belongs — it gets `-race`, full coverage attribution, and fast feedback.
+
+- Store tests use a real SQLite file, not mocks. SQLite is fast enough and mocks
+  hide constraint bugs.
+- **Concurrency is tested, not reasoned about.** Anything touching the store or
+  scheduler needs a test hitting it from several goroutines under `-race`. These
+  failure modes only appear under contention.
+- Scheduler tests inject a fake clock and a fake executor. Never `time.Sleep` to
+  synchronize — flaky under load.
+- New endpoints need a test through the client → handler → store path.
+
+### Layer 3 — E2E against the real binary
+
+Uses [testscript](https://pkg.go.dev/github.com/rogpeppe/go-internal/testscript),
+with scripts in `testdata/script/*.txtar`. Reserved for what layer 2
+*structurally cannot* reach: process spawn and detach, autostart lockfile races,
+signal handling, exit codes, socket file lifecycle, flag parsing. **Keep this to
+5–10 scripts.** If a case doesn't involve a real process boundary, it belongs in
+layer 2.
+
+```
+# testdata/script/daemon_lifecycle.txtar
+! exec sonata status
+stderr 'no daemon'
+exec sonata up
+exec sonata status
+stdout 'running'
+exec sonata down
+! exec sonata status
+```
+
+Harness rules — each of these exists because of a specific failure mode:
+
+- **Build a real binary onto `PATH` in `Setup`.** Do *not* register `main` via
+  testscript's in-process `commands` map. The daemon autostarts by re-execing
+  `os.Executable()`, which under the in-process path is the *test binary*, not
+  `sonata`. Build once in `TestMain` with `go build -cover` so E2E runs
+  contribute coverage.
+- **Socket paths go under `/tmp`, not `t.TempDir()`.** `sockaddr_un.sun_path`
+  caps at 104 bytes on macOS and 108 on Linux. macOS `t.TempDir()` produces long
+  `/var/folders/...` paths that blow the cap and fail with a useless
+  `bind: invalid argument`. Use `os.MkdirTemp("/tmp", "sn")` for sockets even if
+  everything else uses `t.TempDir()`.
+- **Always set `SONATA_SOCKET` and `SONATA_DATABASE`** in the script env. If
+  config ever falls back to defaults, a test run kills the developer's real
+  daemon.
+- **Force-kill in cleanup.** A test failing between `up` and `down` leaks a
+  daemon that holds the socket and poisons later runs. Clean up by PID from the
+  lockfile.
+- **No sleeps for readiness.** `up` blocks until the daemon answers a health
+  check (see below), so scripts don't poll.
+- Autostart needs a script racing several clients against a dead socket,
+  asserting exactly one daemon results.
+
+### Daemon lifecycle contract
+
+Testability forced these, and they're better UX regardless:
+
+- `sonata up` blocks until the daemon answers a health check, then exits 0.
+  Non-zero with a diagnostic on timeout. It must never return before the socket
+  is accepting connections.
+- `sonata status` exits 0 and prints state plus PID when running; exits non-zero
+  with `no daemon` on stderr when not. The exit code is the contract — scripts
+  branch on it.
+- `sonata down` blocks until the process is gone and the socket file is removed.
+  Idempotent: exits 0 if nothing was running.
+- `sonata daemon` runs in the foreground for systemd/launchd; it never forks.
+- The daemon supports `--idle-timeout` so orphaned test daemons self-terminate.
 
 ## Working on this repo
 
@@ -155,7 +227,8 @@ if testing.Short() {
 - Changing the workflow definition format is breaking while the format is
   unstable — say so in the PR description and update the README example.
 - Don't add dependencies for what the standard library covers. Current
-  intentional deps: Cobra, Viper, `modernc.org/sqlite`, a YAML parser. Transport
+  intentional deps: Cobra, Viper, `modernc.org/sqlite`, a YAML parser, and
+  `rogpeppe/go-internal` (test-only, for testscript). Transport
   is `net/http`.
 - Don't run a dev daemon against the real state directory. Point `SONATA_DATABASE`
   and `SONATA_SOCKET` at a temp dir.

@@ -90,13 +90,15 @@ starting daemon...
 run r-4f21 queued
 ```
 
-To run it in the foreground instead — under systemd, launchd, or to watch logs:
+Or manage it explicitly:
 
 ```sh
-sonata daemon              # foreground
-sonata daemon --status
-sonata daemon --stop
+sonata up                  # start; blocks until the daemon is accepting connections
+sonata status              # state and PID; non-zero exit if not running
+sonata down                # stop; blocks until the socket is gone
 ```
+
+`sonata daemon` runs it in the foreground instead, for systemd or launchd.
 
 ### Named workflows
 
@@ -176,8 +178,10 @@ Every command takes `--output json` for scripting.
 | `sonata run retry <run-id>` | Resume a failed run |
 | `sonata run cancel <run-id>` | Signal running tasks to stop |
 | `sonata logs <run-id>` | Stream or dump captured task output |
-| `sonata daemon` | Run the daemon in the foreground |
-| `sonata daemon --stop\|--status` | Daemon lifecycle |
+| `sonata up` | Start the daemon, waiting until it's ready |
+| `sonata status` | Daemon state and PID (non-zero exit if not running) |
+| `sonata down` | Stop the daemon, waiting until it's gone |
+| `sonata daemon` | Run the daemon in the foreground (systemd/launchd) |
 
 Global flags: `--config`, `--socket`, `--output json|table`, `--verbose`,
 `--no-autostart`.
