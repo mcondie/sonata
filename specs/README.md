@@ -6,6 +6,10 @@ one is scoped to a slice that can be built and verified on its own.
 | # | Spec | Status |
 | --- | --- | --- |
 | 001 | [Daemon lifecycle](001-daemon-lifecycle.md) — `up`/`status`/`down`/`daemon`, socket, locking, E2E harness | implemented |
+| 002 | [Startup race + `EnsureRunning`](002-startup-race-and-ensure-running.md) — tolerate dying predecessor, extract autostart primitive | implemented |
+
+[design-notes.md](design-notes.md) holds known issues whose fix belongs
+inside a future slice, each tagged with the spec that should absorb it.
 
 ## Conventions
 

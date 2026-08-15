@@ -32,6 +32,16 @@ type Options struct {
 // shutdownGrace bounds how long in-flight requests get to finish.
 const shutdownGrace = 5 * time.Second
 
+// lockWait bounds how long Run waits for the daemon lock before giving up.
+//
+// A stopping daemon closes its listener before it releases the lock, so for
+// up to shutdownGrace a client sees ECONNREFUSED, concludes nothing is
+// running, and spawns a successor — which must outlast the predecessor's
+// drain rather than fail instantly. A daemon that is genuinely serving holds
+// the lock indefinitely, so waiting past the drain window buys nothing; the
+// extra 2s is slack, not patience.
+const lockWait = shutdownGrace + 2*time.Second
+
 // Run starts the daemon and blocks until it is signalled, its idle timeout
 // expires, or ctx is cancelled. It never forks.
 func Run(ctx context.Context, opts Options) error {
@@ -45,7 +55,7 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("create state dir: %w", err)
 	}
 
-	lock, err := Acquire(cfg.LockPath())
+	lock, err := AcquireWait(cfg.LockPath(), lockWait)
 	if err != nil {
 		if errors.Is(err, ErrLocked) {
 			if pid, ok := RunningPID(cfg.LockPath()); ok && pid > 0 {

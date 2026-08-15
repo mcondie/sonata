@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -107,6 +108,11 @@ func TestRunServesHealthAndCleansUp(t *testing.T) {
 }
 
 func TestRunRefusesSecondDaemon(t *testing.T) {
+	// Short-guarded because Run now waits out lockWait before giving up; a
+	// live daemon holds the lock for that whole grace.
+	if testing.Short() {
+		t.Skip("integration test")
+	}
 	cfg := testConfig(t)
 	stop, _ := startDaemon(t, cfg, 0)
 	defer stop()
@@ -122,6 +128,165 @@ func TestRunRefusesSecondDaemon(t *testing.T) {
 	if got := err.Error(); !contains(got, "already running") {
 		t.Errorf("error = %q, want it to mention 'already running'", got)
 	}
+}
+
+// TestRunWaitsForDyingPredecessor covers the restart race: a stopping daemon
+// closes its listener before releasing the lock, so a successor spawned in
+// that window must wait out the drain rather than exit "already running".
+func TestRunWaitsForDyingPredecessor(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test")
+	}
+	cfg := testConfig(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	first := make(chan error, 1)
+	go func() {
+		first <- Run(ctx, Options{Config: cfg, Version: "first", Log: discardLogger()})
+	}()
+
+	client := api.NewClient(cfg.Socket)
+	if _, err := WaitReady(context.Background(), client, 5*time.Second); err != nil {
+		cancel()
+		t.Fatalf("first daemon never became ready: %v", err)
+	}
+
+	// Pin the first daemon inside its drain window. A connection that has
+	// sent request bytes but no terminating blank line counts as active, so
+	// Shutdown waits on it for the full shutdownGrace.
+	conn, err := net.Dial("unix", cfg.Socket)
+	if err != nil {
+		cancel()
+		t.Fatalf("dial socket: %v", err)
+	}
+	defer conn.Close()
+	if _, err := conn.Write([]byte("POST /v1/health HTTP/1.1\r\nHost: sonata\r\n")); err != nil {
+		cancel()
+		t.Fatalf("write partial request: %v", err)
+	}
+
+	cancel()
+
+	// Confirm we are actually in the window this test exists for: the
+	// listener is closed (clients see ECONNREFUSED) while the lock is still
+	// held. Without the pinned connection this window is microseconds.
+	if !waitForCond(2*time.Second, func() bool {
+		_, held := RunningPID(cfg.LockPath())
+		return held && !accepting(cfg.Socket)
+	}) {
+		t.Fatal("predecessor never entered the drain window; test cannot exercise the race")
+	}
+
+	// Immediately: this is exactly what an autostart client does after
+	// seeing ECONNREFUSED on the dying daemon's socket.
+	second := make(chan error, 1)
+	secondCtx, cancelSecond := context.WithCancel(context.Background())
+	defer cancelSecond()
+	go func() {
+		second <- Run(secondCtx, Options{Config: cfg, Version: "second", Log: discardLogger()})
+	}()
+
+	h, err := WaitReady(context.Background(), client, lockWait+5*time.Second)
+	if err != nil {
+		select {
+		case rerr := <-second:
+			t.Fatalf("successor exited instead of waiting out the drain: %v", rerr)
+		default:
+		}
+		t.Fatalf("successor never became ready: %v", err)
+	}
+	if h.Version != "second" {
+		t.Errorf("version = %q, want second — the predecessor is still serving", h.Version)
+	}
+
+	if err := <-first; err != nil {
+		t.Errorf("first daemon exited with error: %v", err)
+	}
+	cancelSecond()
+	if err := <-second; err != nil {
+		t.Errorf("second daemon exited with error: %v", err)
+	}
+}
+
+func TestRunFailsWhenLockHeldBeyondGrace(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test")
+	}
+	cfg := testConfig(t)
+	if err := os.MkdirAll(cfg.StateDir, 0o700); err != nil {
+		t.Fatalf("mkdir state dir: %v", err)
+	}
+
+	// A holder that never releases stands in for a live, serving daemon:
+	// waiting longer than the grace would buy nothing.
+	lock, err := Acquire(cfg.LockPath())
+	if err != nil {
+		t.Fatalf("acquire lock: %v", err)
+	}
+	defer func() { _ = lock.Release() }()
+	if err := lock.WritePID(424242); err != nil {
+		t.Fatalf("write pid: %v", err)
+	}
+
+	start := time.Now()
+	err = Run(context.Background(), Options{Config: cfg, Version: "test", Log: discardLogger()})
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("Run should refuse to start while the lock is held")
+	}
+	if got := err.Error(); !contains(got, "already running") || !contains(got, "424242") {
+		t.Errorf("error = %q, want it to mention 'already running' and the holder's pid", got)
+	}
+	if elapsed < lockWait {
+		t.Errorf("failed after %s, want it to wait out the full %s grace first", elapsed, lockWait)
+	}
+}
+
+func TestEnsureRunningIdempotent(t *testing.T) {
+	cfg := testConfig(t)
+	stop, _ := startDaemon(t, cfg, 0)
+	defer stop()
+
+	h, started, err := EnsureRunning(context.Background(), cfg, EnsureOptions{})
+	if err != nil {
+		t.Fatalf("EnsureRunning: %v", err)
+	}
+	if started {
+		t.Error("started = true, want false — a daemon was already serving")
+	}
+	if h.PID != os.Getpid() {
+		t.Errorf("pid = %d, want %d (the in-process daemon)", h.PID, os.Getpid())
+	}
+
+	// The start lock must not be left held, or the next ensure stalls.
+	if _, held := RunningPID(cfg.StartLockPath()); held {
+		t.Error("start lock still held after EnsureRunning returned")
+	}
+}
+
+// waitForCond polls cond until it holds, reporting whether it ever did.
+func waitForCond(timeout time.Duration, cond func() bool) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		if cond() {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// accepting reports whether something is answering connects on path.
+func accepting(path string) bool {
+	c, err := net.Dial("unix", path)
+	if err != nil {
+		return false
+	}
+	_ = c.Close()
+	return true
 }
 
 func TestRunRemovesStaleSocket(t *testing.T) {
