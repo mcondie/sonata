@@ -1,0 +1,23 @@
+# Acceptance test for spec 001: up -> status -> down.
+
+# Nothing running yet. status is a query, so absence is exit 1 on stderr.
+! exec sonata status
+stderr 'no daemon running'
+
+# up blocks until the daemon is accepting connections.
+exec sonata up
+stdout 'daemon started \(pid \d+\)'
+
+# The daemon answers and reports itself.
+exec sonata status
+stdout '^running'
+stdout 'pid \d+'
+stdout 'socket '
+
+# down blocks until the process is gone and the socket removed.
+exec sonata down
+stdout 'daemon stopped \(pid \d+\)'
+
+# Back to the initial state.
+! exec sonata status
+stderr 'no daemon running'

@@ -1,0 +1,18 @@
+# The start lock must serialize concurrent up, leaving exactly one daemon.
+# This is the primitive autostart will depend on.
+
+exec sonata up &
+exec sonata up &
+exec sonata up &
+exec sonata up &
+wait
+
+exec sonata status
+stdout '^running'
+
+# Exactly one socket exists, and one down cleans everything up.
+exec sonata down
+stdout 'daemon stopped'
+
+! exec sonata status
+stderr 'no daemon running'

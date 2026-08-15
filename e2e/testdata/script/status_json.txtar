@@ -1,0 +1,11 @@
+# --output json must stay parseable in both states, with exit codes intact.
+
+! exec sonata status --output json
+stdout '"running": false'
+
+exec sonata up
+exec sonata status --output json
+stdout '"running": true'
+stdout '"pid": \d+'
+
+exec sonata down

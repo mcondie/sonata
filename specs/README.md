@@ -5,7 +5,7 @@ one is scoped to a slice that can be built and verified on its own.
 
 | # | Spec | Status |
 | --- | --- | --- |
-| 001 | [Daemon lifecycle](001-daemon-lifecycle.md) — `up`/`status`/`down`/`daemon`, socket, locking, E2E harness | proposed |
+| 001 | [Daemon lifecycle](001-daemon-lifecycle.md) — `up`/`status`/`down`/`daemon`, socket, locking, E2E harness | implemented |
 
 ## Conventions
 

@@ -1,0 +1,13 @@
+# A second `up` is a no-op that still exits 0.
+
+exec sonata up
+stdout 'daemon started'
+
+exec sonata up
+stdout 'daemon already running \(pid \d+\)'
+
+exec sonata status
+stdout '^running'
+
+exec sonata down
+stdout 'daemon stopped'

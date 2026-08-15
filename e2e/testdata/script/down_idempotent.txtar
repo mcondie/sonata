@@ -1,0 +1,7 @@
+# down reports the requested end state as success, unlike status.
+
+exec sonata down
+stdout 'no daemon running'
+
+exec sonata down
+stdout 'no daemon running'

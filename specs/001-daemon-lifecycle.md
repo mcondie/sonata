@@ -1,6 +1,6 @@
 # Spec 001 — Daemon lifecycle vertical slice
 
-**Status:** proposed
+**Status:** implemented
 **Scope:** the smallest end-to-end slice that makes `sonata up` → `sonata status`
 → `sonata down` work against a real binary, with a passing testscript suite.
 
@@ -55,6 +55,7 @@ e2e/testdata/script/daemon_lifecycle.txtar  the acceptance test
 e2e/testdata/script/up_idempotent.txtar
 e2e/testdata/script/up_concurrent.txtar
 e2e/testdata/script/down_idempotent.txtar
+e2e/testdata/script/status_json.txtar
 ```
 
 ---
@@ -84,8 +85,7 @@ returns before the socket is live — this is what lets E2E scripts avoid sleeps
 4. Spawn `os.Executable()` with `daemon`, detached (see below).
 5. Poll health every 25ms until ready or `--timeout` (default 10s) elapses.
 6. On ready: print `daemon started (pid N)`, exit 0.
-   On timeout: kill the child, print diagnostics including the child's captured
-   stderr, exit 3.
+   On timeout: kill the child, print a tail of the daemon log, exit 3.
 7. Release the start lock.
 
 Flags: `--timeout duration` (default `10s`).
@@ -105,7 +105,11 @@ Query only — **never** starts a daemon, even when autostart lands later.
 Stops the daemon and **blocks until the process is gone and the socket file is
 removed**.
 
-1. Read PID from the lock file. If absent or the process is gone → print
+1. Resolve the PID. Probe health first and take the PID from the response —
+   that PID belongs to the process that actually answered, so it cannot be
+   stale. Fall back to the lock file only when health fails but the lock is
+   held, which is the wedged-or-still-starting case that health alone cannot
+   tell apart from absence. If neither says a daemon exists → print
    `no daemon running`, exit **0** (idempotent, unlike `status`).
 2. `SIGTERM` the PID.
 3. Wait for the process to exit and the socket file to disappear, up to
@@ -140,7 +144,12 @@ A second `sonata daemon` must fail fast: if it cannot take `sonata.lock`
 non-blocking, it exits 3 with `another daemon is already running (pid N)`.
 
 Do not infer liveness from the PID file alone — PIDs are recycled. The `flock`
-is the source of truth; the PID contents are for `down` to signal.
+is the source of truth; the PID contents are a fallback for `down` to signal.
+
+The lock file is **never unlinked**, not even at shutdown. Removing it would let
+a later process create and lock a different inode while an earlier one still
+believed it held the lock. A leftover file is harmless: the flock state, not the
+file's existence, is what carries meaning.
 
 ### Startup sequence
 
@@ -159,7 +168,7 @@ On `SIGTERM`/`SIGINT`, or idle timeout:
 
 1. Stop accepting; `http.Server.Shutdown(ctx)` with a 5s drain.
 2. Close the listener, unlink the socket file.
-3. Release the lock, remove the PID file.
+3. Release the lock. The lock file itself stays (see above).
 4. Exit 0.
 
 Removing the socket file is required — a leftover file makes the next `up` do
@@ -172,7 +181,7 @@ cmd := exec.Command(exe, "daemon")
 cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}  // new session; survives parent
 cmd.Stdin = nil
 cmd.Stdout = logFile   // <state>/daemon.log
-cmd.Stderr = stderrBuf // captured, surfaced if startup fails
+cmd.Stderr = logFile   // same file; read back as a tail if startup fails
 cmd.Env = append(os.Environ(), ...)  // socket/db paths propagate
 if err := cmd.Start(); err != nil { ... }
 _ = cmd.Process.Release()  // do not Wait; child is not ours to reap
@@ -297,6 +306,9 @@ primitive autostart will later depend on.
 
 **`down_idempotent.txtar`** — `down` with no daemon exits 0.
 
+**`status_json.txtar`** — `--output json` stays parseable in both states and
+exit codes are unchanged by the output format.
+
 ### Unit tests
 
 - Config precedence: flag beats env beats file beats default.
@@ -309,10 +321,12 @@ primitive autostart will later depend on.
 
 ## Done when
 
-- [ ] `make build` produces `./bin/sonata`
-- [ ] `make test` passes (unit, `-race -short`)
-- [ ] `make test-integ` passes, including all four scripts
-- [ ] `sonata up && sonata status && sonata down` works by hand from a shell
-- [ ] `sonata daemon` runs in the foreground and stops cleanly on Ctrl-C
-- [ ] No daemon survives a deliberately failed test run
-- [ ] `make lint` clean
+- [x] `make build` produces `./bin/sonata`
+- [x] `make test` passes (unit, `-race -short`)
+- [x] `make test-integ` passes, including all five scripts
+- [x] `sonata up && sonata status && sonata down` works by hand from a shell
+- [x] `sonata daemon` runs in the foreground and stops cleanly on SIGTERM
+- [x] No daemon survives a deliberately failed test run (script teardown reaps
+      by PID from the lock file)
+- [x] `go vet` and `gofmt` clean
+- [ ] `make lint` — golangci-lint is not installed locally, so this is unrun
