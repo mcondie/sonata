@@ -6,35 +6,10 @@ spec that should absorb it. When writing that spec, fold the note in and
 delete it here; this file should trend toward empty.
 
 Found during an architecture review of the spec 001 implementation
-(2026-08-14). Spec 002 covers the two items promoted to immediate work
-(the startup shutdown-race and `EnsureRunning` extraction).
-
-## Fold into the scheduler/executor spec
-
-### Idle timeout must learn what "busy" means
-
-`OnActivity` fires at the top of `ServeHTTP`, so the idle tracker only sees
-request *arrival*. Two failure modes once the daemon does real work:
-
-- A daemon executing a long run with no client polling it will idle-timeout
-  and die mid-run.
-- A long-lived streaming connection (log follow) counts as activity only at
-  its first byte.
-
-The tracker needs a busy signal — in-flight request count plus active runs
-— not just "last request seen". The scheduler/executor are the components
-that know when a run is active, so the hook's shape should be decided in
-that spec, not bolted on after.
-
-### SIGKILL escalation orphans task subprocesses
-
-`daemon.Stop` escalates to SIGKILL on the daemon PID when a graceful stop
-times out. Once the executor runs tasks in their own process groups (as the
-cancellation rules require), a SIGKILL'd daemon leaves those groups running
-unwatched. This cannot be fixed at kill time — the pattern is: the daemon
-persists task PIDs/pgids in SQLite, and the *next* daemon reaps orphans at
-startup. The store schema must account for this from the first migration
-that records task execution.
+(2026-08-14). Folded so far: the startup shutdown-race and
+`EnsureRunning` extraction (spec 002); `Spawn`'s hand-maintained env
+propagation list (spec 004); the idle tracker's busy signal and
+SIGKILL orphan reaping (spec 006).
 
 ## Fold into the first streaming/long-poll endpoint spec
 
@@ -42,22 +17,9 @@ that records task execution.
 
 `api.NewClient` sets `http.Client.Timeout = 10s`, which caps the entire
 request *including body read*. A log-follow or run-wait endpoint dies at
-10 seconds regardless of context. Before adding such an endpoint, move
-timeout control to per-request contexts; dial and response-header timeouts
-on the transport can stay.
-
-## Fold into whichever spec next touches config
-
-### `Spawn`'s env propagation is a hand-maintained list
-
-`Spawn` forwards exactly four settings (`STATE_DIR`, `SOCKET`, `DATABASE`,
-`LOG_LEVEL`) to the detached child. Every config field added later must be
-remembered there, or the child resolves different config than the parent
-validated — and the failure is silent divergence, not an error. Fix by
-making propagation derive from one source of truth: either generate the env
-list from the `Config` struct in `internal/config`, or propagate the
-resolved `--config` file path as well. Do this in the same change that adds
-the next config field.
+10 seconds regardless of context. Before adding such an endpoint (e.g. a
+future `sonata trace --follow`), move timeout control to per-request
+contexts; dial and response-header timeouts on the transport can stay.
 
 ## Minor, opportunistic
 
