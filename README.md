@@ -46,7 +46,7 @@ Transport is plain HTTP/JSON over the socket, with request and response types in
 a shared Go package. No codegen step, and the API is debuggable directly:
 
 ```sh
-curl --unix-socket ~/.local/state/sonata/sonatad.sock \
+curl --unix-socket ~/.local/state/sonata/sonata.sock \
   -d '{"run_id":"r-4f21"}' http://x/v1/run.show
 ```
 
@@ -65,11 +65,11 @@ curl --unix-socket ~/.local/state/sonata/sonatad.sock \
 
 ## Installation
 
-Requires Go 1.22+. One binary, no C toolchain — the SQLite driver is pure Go, so
+Requires Go 1.23+. One binary, no C toolchain — the SQLite driver is pure Go, so
 cross-compiling is a single env var.
 
 ```sh
-go install github.com/matthewcondie/sonata/cmd/sonata@latest
+go install github.com/mcondie/sonata/cmd/sonata@latest
 ```
 
 From a clone:
@@ -195,7 +195,7 @@ Config file search path: `./sonata.yaml`, then `$XDG_CONFIG_HOME/sonata/config.y
 (falling back to `~/.config/sonata/config.yaml`).
 
 ```yaml
-socket: ~/.local/state/sonata/sonatad.sock
+socket: ~/.local/state/sonata/sonata.sock
 database: ~/.local/state/sonata/sonata.db
 
 log_level: info
@@ -245,16 +245,18 @@ store layer is built for it:
 
 ```sh
 make build        # ./bin/sonata
-make test         # unit tests
-make test-integ   # integration tests (spawns a real daemon in a temp dir)
+make test         # unit tests (-race -short)
+make test-integ   # everything, including daemon-spawning tests
+make cover        # coverage.html
 make lint         # go vet + golangci-lint
+make fmt tidy clean
 ```
 
 Work against an isolated state directory:
 
 ```sh
 export SONATA_DATABASE=/tmp/dev/sonata.db
-export SONATA_SOCKET=/tmp/dev/sonatad.sock
+export SONATA_SOCKET=/tmp/dev/sonata.sock
 ./bin/sonata daemon
 ```
 

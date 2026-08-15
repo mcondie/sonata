@@ -1,0 +1,20 @@
+# Build output
+/bin/
+/dist/
+
+# Coverage
+coverage.out
+coverage.html
+
+# Local state — the daemon's database, WAL sidecars, and socket
+*.db
+*.db-wal
+*.db-shm
+*.sock
+
+# Local config overrides
+/sonata.yaml
+
+# Editor / OS
+.DS_Store
+*.swp

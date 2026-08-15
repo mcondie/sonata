@@ -110,15 +110,25 @@ in the YAML parser alone, or ad-hoc submissions skip it.
 ## Commands
 
 ```sh
-make build        # ./bin/sonata
-make build-all    # cross-compile darwin/arm64, linux/amd64, linux/arm64
-make test         # unit tests
-make test-integ   # integration tests, spawns a real daemon in a temp dir
+make build        # ./bin/sonata, with version stamped via -ldflags
+make build-all    # cross-compile darwin and linux, amd64 + arm64
+make test         # unit tests: go test -race -short ./...
+make test-integ   # everything, including daemon-spawning tests
+make cover        # coverage.html
 make lint         # go vet + golangci-lint
+make fmt tidy clean
 ```
 
-Prefer `make test` over bare `go test ./...` — it sets the tags the integration
-tests key off.
+Long tests gate on `testing.Short()` rather than a build tag — anything that
+spawns a daemon, opens a socket, or waits on a clock starts with:
+
+```go
+if testing.Short() {
+    t.Skip("integration test")
+}
+```
+
+`CGO_ENABLED=0` is exported by the Makefile. Don't override it.
 
 ## Testing expectations
 
